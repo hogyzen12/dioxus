@@ -4,15 +4,40 @@ package dev.dioxus.main;
 import com.example.Mobile.BuildConfig;
 import android.os.Bundle // Required for onCreate
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender // Required for MWA
+import android.hardware.usb.UsbDeviceConnection // Add this import
+import java.util.concurrent.ConcurrentHashMap // Add this import
 
 typealias BuildConfig = BuildConfig;
 
 
 class MainActivity : WryActivity() {
     internal lateinit var mwaActivityResultSender: ActivityResultSender
+    
+    // Add USB connection storage
+    private val usbConnections = ConcurrentHashMap<String, UsbDeviceConnection>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState) // Ensures WryActivity.onCreate() is called
         mwaActivityResultSender = ActivityResultSender(this)
+    }
+    
+    // Add these USB connection management methods
+    fun storeUsbConnection(deviceName: String, connection: UsbDeviceConnection) {
+        usbConnections[deviceName] = connection
+    }
+    
+    fun getUsbConnection(deviceName: String): UsbDeviceConnection? {
+        return usbConnections[deviceName]
+    }
+    
+    fun removeUsbConnection(deviceName: String): UsbDeviceConnection? {
+        return usbConnections.remove(deviceName)
+    }
+    
+    override fun onDestroy() {
+        // Close all USB connections when activity is destroyed
+        usbConnections.values.forEach { it.close() }
+        usbConnections.clear()
+        super.onDestroy()
     }
 }

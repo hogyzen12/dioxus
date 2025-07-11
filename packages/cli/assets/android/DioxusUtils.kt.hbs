@@ -14,6 +14,19 @@ import com.solana.mobilewalletadapter.clientlib.Blockchain
 import com.solana.mobilewalletadapter.clientlib.Solana // Specific blockchain implementation
 // SignInWithSolana might be needed if we add sign-in functionality later
 // import com.solana.mobilewalletadapter.common.signin.SignInWithSolana 
+// Add these imports after the existing import statements (around line 15)
+import android.content.Context
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbEndpoint
+import android.content.Intent
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -256,6 +269,240 @@ class DioxusUtils {
             val immediateReturnMessage = "MWA message signing process initiated. Check Logcat for '$TAG' for asynchronous result."
             Log.d(TAG, immediateReturnMessage)
             return immediateReturnMessage
+        }
+
+        // Add these USB-related methods after the signMessage method
+
+        @Keep
+        @JvmStatic
+        fun getConnectedUsbDevices(activity: ComponentActivity): String {
+            Log.d(TAG, "getConnectedUsbDevices called")
+            
+            val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
+            val deviceList = usbManager.deviceList
+            
+            val devicesJson = JSONArray()
+            
+            for ((deviceName, device) in deviceList) {
+                val deviceJson = JSONObject().apply {
+                    put("name", deviceName)
+                    put("deviceName", device.deviceName)
+                    put("vendorId", device.vendorId)
+                    put("productId", device.productId)
+                    put("deviceClass", device.deviceClass)
+                    put("deviceSubclass", device.deviceSubclass)
+                    put("protocol", device.protocol)
+                    put("serialNumber", device.serialNumber ?: "Unknown")
+                    put("manufacturerName", device.manufacturerName ?: "Unknown")
+                    put("productName", device.productName ?: "Unknown")
+                    put("hasPermission", usbManager.hasPermission(device))
+                }
+                devicesJson.put(deviceJson)
+            }
+            
+            val result = devicesJson.toString()
+            Log.d(TAG, "Found ${deviceList.size} USB devices: $result")
+            return result
+        }
+
+        @Keep
+        @JvmStatic
+        fun requestUsbPermission(activity: ComponentActivity, deviceName: String): String {
+            Log.d(TAG, "requestUsbPermission called for device: $deviceName")
+            
+            val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
+            val device = usbManager.deviceList[deviceName]
+            
+            return if (device != null) {
+                if (usbManager.hasPermission(device)) {
+                    Log.d(TAG, "Permission already granted for device: $deviceName")
+                    "permission_already_granted"
+                } else {
+                    val permissionIntent = PendingIntent.getBroadcast(
+                        activity, 
+                        0, 
+                        Intent("{{application_id}}.USB_PERMISSION").apply {
+                            putExtra("device_name", deviceName)
+                        }, 
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
+                    usbManager.requestPermission(device, permissionIntent)
+                    Log.d(TAG, "Permission requested for device: $deviceName")
+                    "permission_requested"
+                }
+            } else {
+                Log.w(TAG, "Device not found: $deviceName")
+                "device_not_found"
+            }
+        }
+
+        @Keep
+        @JvmStatic
+        fun openUsbDevice(activity: ComponentActivity, deviceName: String): String {
+            Log.d(TAG, "openUsbDevice called for device: $deviceName")
+            
+            val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
+            val device = usbManager.deviceList[deviceName]
+            
+            return if (device != null) {
+                if (usbManager.hasPermission(device)) {
+                    val connection = usbManager.openDevice(device)
+                    if (connection != null) {
+                        Log.d(TAG, "Successfully opened device: $deviceName")
+                        // Store connection reference in MainActivity for later use
+                        if (activity is MainActivity) {
+                            activity.storeUsbConnection(deviceName, connection)
+                        }
+                        "device_opened"
+                    } else {
+                        Log.e(TAG, "Failed to open device: $deviceName")
+                        "open_failed"
+                    }
+                } else {
+                    Log.w(TAG, "No permission for device: $deviceName")
+                    "no_permission"
+                }
+            } else {
+                Log.w(TAG, "Device not found: $deviceName")
+                "device_not_found"
+            }
+        }
+
+        @Keep
+        @JvmStatic
+        fun closeUsbDevice(activity: ComponentActivity, deviceName: String): String {
+            Log.d(TAG, "closeUsbDevice called for device: $deviceName")
+            
+            return if (activity is MainActivity) {
+                val connection = activity.getUsbConnection(deviceName)
+                if (connection != null) {
+                    connection.close()
+                    activity.removeUsbConnection(deviceName)
+                    Log.d(TAG, "Device closed: $deviceName")
+                    "device_closed"
+                } else {
+                    Log.w(TAG, "No open connection for device: $deviceName")
+                    "device_not_open"
+                }
+            } else {
+                Log.e(TAG, "Activity is not MainActivity instance")
+                "activity_error"
+            }
+        }
+
+        @Keep
+        @JvmStatic
+        fun writeUsbData(activity: ComponentActivity, deviceName: String, data: ByteArray): String {
+            Log.d(TAG, "writeUsbData called for device: $deviceName, data size: ${data.size}")
+            
+            return if (activity is MainActivity) {
+                val connection = activity.getUsbConnection(deviceName)
+                if (connection != null) {
+                    // This is a basic implementation - you'll need to customize based on your USB device
+                    // Find the first OUT endpoint
+                    val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
+                    val device = usbManager.deviceList[deviceName]
+                    
+                    if (device != null && device.interfaceCount > 0) {
+                        val usbInterface = device.getInterface(0)
+                        connection.claimInterface(usbInterface, true)
+                        
+                        // Find OUT endpoint
+                        var outEndpoint: UsbEndpoint? = null
+                        for (i in 0 until usbInterface.endpointCount) {
+                            val endpoint = usbInterface.getEndpoint(i)
+                            if (endpoint.direction == UsbEndpoint.DIR_OUT) {
+                                outEndpoint = endpoint
+                                break
+                            }
+                        }
+                        
+                        if (outEndpoint != null) {
+                            val bytesTransferred = connection.bulkTransfer(outEndpoint, data, data.size, 5000)
+                            connection.releaseInterface(usbInterface)
+                            
+                            if (bytesTransferred >= 0) {
+                                Log.d(TAG, "Successfully wrote $bytesTransferred bytes to device: $deviceName")
+                                "write_success:$bytesTransferred"
+                            } else {
+                                Log.e(TAG, "Failed to write data to device: $deviceName")
+                                "write_failed"
+                            }
+                        } else {
+                            connection.releaseInterface(usbInterface)
+                            Log.e(TAG, "No OUT endpoint found for device: $deviceName")
+                            "no_out_endpoint"
+                        }
+                    } else {
+                        Log.e(TAG, "Device or interface not found: $deviceName")
+                        "device_interface_error"
+                    }
+                } else {
+                    Log.w(TAG, "No open connection for device: $deviceName")
+                    "device_not_open"
+                }
+            } else {
+                Log.e(TAG, "Activity is not MainActivity instance")
+                "activity_error"
+            }
+        }
+
+        @Keep
+        @JvmStatic
+        fun readUsbData(activity: ComponentActivity, deviceName: String, bufferSize: Int): String {
+            Log.d(TAG, "readUsbData called for device: $deviceName, buffer size: $bufferSize")
+            
+            return if (activity is MainActivity) {
+                val connection = activity.getUsbConnection(deviceName)
+                if (connection != null) {
+                    val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
+                    val device = usbManager.deviceList[deviceName]
+                    
+                    if (device != null && device.interfaceCount > 0) {
+                        val usbInterface = device.getInterface(0)
+                        connection.claimInterface(usbInterface, true)
+                        
+                        // Find IN endpoint
+                        var inEndpoint: UsbEndpoint? = null
+                        for (i in 0 until usbInterface.endpointCount) {
+                            val endpoint = usbInterface.getEndpoint(i)
+                            if (endpoint.direction == UsbEndpoint.DIR_IN) {
+                                inEndpoint = endpoint
+                                break
+                            }
+                        }
+                        
+                        if (inEndpoint != null) {
+                            val buffer = ByteArray(bufferSize)
+                            val bytesRead = connection.bulkTransfer(inEndpoint, buffer, buffer.size, 5000)
+                            connection.releaseInterface(usbInterface)
+                            
+                            if (bytesRead >= 0) {
+                                Log.d(TAG, "Successfully read $bytesRead bytes from device: $deviceName")
+                                val actualData = buffer.copyOf(bytesRead)
+                                val base64Data = android.util.Base64.encodeToString(actualData, android.util.Base64.DEFAULT)
+                                "read_success:$bytesRead:$base64Data"
+                            } else {
+                                Log.e(TAG, "Failed to read data from device: $deviceName")
+                                "read_failed"
+                            }
+                        } else {
+                            connection.releaseInterface(usbInterface)
+                            Log.e(TAG, "No IN endpoint found for device: $deviceName")
+                            "no_in_endpoint"
+                        }
+                    } else {
+                        Log.e(TAG, "Device or interface not found: $deviceName")
+                        "device_interface_error"
+                    }
+                } else {
+                    Log.w(TAG, "No open connection for device: $deviceName")
+                    "device_not_open"
+                }
+            } else {
+                Log.e(TAG, "Activity is not MainActivity instance")
+                "activity_error"
+            }
         }
     }
 }
