@@ -12,15 +12,14 @@ import com.solana.mobilewalletadapter.clientlib.TransactionResult
 import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClient // For AuthorizationResult
 import com.solana.mobilewalletadapter.clientlib.Blockchain
 import com.solana.mobilewalletadapter.clientlib.Solana // Specific blockchain implementation
-// SignInWithSolana might be needed if we add sign-in functionality later
-// import com.solana.mobilewalletadapter.common.signin.SignInWithSolana 
-// Add these imports after the existing import statements (around line 15)
+// Add these USB-related imports
 import android.content.Context
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbEndpoint
+import android.hardware.usb.UsbConstants
 import android.content.Intent
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -271,8 +270,6 @@ class DioxusUtils {
             return immediateReturnMessage
         }
 
-        // Add these USB-related methods after the signMessage method
-
         @Keep
         @JvmStatic
         fun getConnectedUsbDevices(activity: ComponentActivity): String {
@@ -291,7 +288,7 @@ class DioxusUtils {
                     put("productId", device.productId)
                     put("deviceClass", device.deviceClass)
                     put("deviceSubclass", device.deviceSubclass)
-                    put("protocol", device.protocol)
+                    put("deviceProtocol", device.deviceProtocol) // Fix: was 'protocol'
                     put("serialNumber", device.serialNumber ?: "Unknown")
                     put("manufacturerName", device.manufacturerName ?: "Unknown")
                     put("productName", device.productName ?: "Unknown")
@@ -407,11 +404,11 @@ class DioxusUtils {
                         val usbInterface = device.getInterface(0)
                         connection.claimInterface(usbInterface, true)
                         
-                        // Find OUT endpoint
+                        // Find OUT endpoint - Fix: use UsbConstants.USB_DIR_OUT
                         var outEndpoint: UsbEndpoint? = null
                         for (i in 0 until usbInterface.endpointCount) {
                             val endpoint = usbInterface.getEndpoint(i)
-                            if (endpoint.direction == UsbEndpoint.DIR_OUT) {
+                            if (endpoint.direction == UsbConstants.USB_DIR_OUT) {
                                 outEndpoint = endpoint
                                 break
                             }
@@ -462,11 +459,11 @@ class DioxusUtils {
                         val usbInterface = device.getInterface(0)
                         connection.claimInterface(usbInterface, true)
                         
-                        // Find IN endpoint
+                        // Find IN endpoint - Fix: use UsbConstants.USB_DIR_IN
                         var inEndpoint: UsbEndpoint? = null
                         for (i in 0 until usbInterface.endpointCount) {
                             val endpoint = usbInterface.getEndpoint(i)
-                            if (endpoint.direction == UsbEndpoint.DIR_IN) {
+                            if (endpoint.direction == UsbConstants.USB_DIR_IN) {
                                 inEndpoint = endpoint
                                 break
                             }
