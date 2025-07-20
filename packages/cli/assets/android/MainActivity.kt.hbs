@@ -13,6 +13,8 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDevice
 import com.hoho.android.usbserial.driver.UsbSerialPort // From usb-serial library
+import dev.dioxus.main.UsbPermissionReceiver // Import your receiver class
+import dev.dioxus.main.Ipc // Import Ipc for sendUsbOperationResult (adjust package if different)
 
 typealias BuildConfig = BuildConfig;
 
