@@ -7,53 +7,58 @@ import com.solana.mobilewalletadapter.clientlib.ActivityResultSender // Required
 import android.hardware.usb.UsbDeviceConnection // Add this import
 import java.util.concurrent.ConcurrentHashMap // Add this import
 import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDevice
+import com.hoho.android.usbserial.driver.UsbSerialPort // From usb-serial library
 
 typealias BuildConfig = BuildConfig;
 
 class MainActivity : WryActivity() {
     internal lateinit var mwaActivityResultSender: ActivityResultSender
     
-    // Add USB connection storage - change to store UsbSerialPort instead
-    private val usbPorts = ConcurrentHashMap<String, com.hoho.android.usbserial.driver.UsbSerialPort>()
+    // Add USB port storage (updated to UsbSerialPort)
+    private val usbPorts = ConcurrentHashMap<String, UsbSerialPort>()
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        
-        // Register USB permission receiver
-        val usbPermissionReceiver = UsbPermissionReceiver()
-        registerReceiver(usbPermissionReceiver, IntentFilter("{{application_id}}.USB_PERMISSION"))
-        
-        // Register detach receiver
-        val usbDetachReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    device?.deviceName?.let { deviceName ->
-                        closeUsbPort(deviceName)
-                        // Send to Rust via Ipc if needed
-                        Ipc.sendUsbOperationResult("close", "detached:$deviceName")
-                    }
+    // Make receivers class members for unregister
+    private val usbPermissionReceiver = UsbPermissionReceiver()
+    private val usbDetachReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
+                val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                device?.deviceName?.let { deviceName ->
+                    closeUsbPort(deviceName)
+                    // Send to Rust via Ipc
+                    Ipc.sendUsbOperationResult("close", "detached:$deviceName")
                 }
             }
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState) // Ensures WryActivity.onCreate() is called
+        
+        // Register USB permission receiver
+        registerReceiver(usbPermissionReceiver, IntentFilter("{{application_id}}.USB_PERMISSION"))
+        
+        // Register detach receiver
         registerReceiver(usbDetachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED))
         
         mwaActivityResultSender = ActivityResultSender(this)
     }
     
     // Update to store UsbSerialPort
-    fun storeUsbPort(deviceName: String, port: com.hoho.android.usbserial.driver.UsbSerialPort) {
+    fun storeUsbPort(deviceName: String, port: UsbSerialPort) {
         usbPorts[deviceName] = port
     }
     
-    fun getUsbPort(deviceName: String): com.hoho.android.usbserial.driver.UsbSerialPort? {
+    fun getUsbPort(deviceName: String): UsbSerialPort? {
         return usbPorts[deviceName]
     }
     
-    fun removeUsbPort(deviceName: String): com.hoho.android.usbserial.driver.UsbSerialPort? {
+    fun removeUsbPort(deviceName: String): UsbSerialPort? {
         return usbPorts.remove(deviceName)
     }
     
@@ -72,9 +77,9 @@ class MainActivity : WryActivity() {
         // Close all USB ports
         usbPorts.keys.forEach { closeUsbPort(it) }
         usbPorts.clear()
-        // Unregister receivers - use local vars or make class members
-        unregisterReceiver(usbPermissionReceiver)  // Assuming you define it as class member if needed
-        unregisterReceiver(usbDetachReceiver)     // Same
+        // Unregister receivers
+        unregisterReceiver(usbPermissionReceiver)
+        unregisterReceiver(usbDetachReceiver)
         super.onDestroy()
     }
 }
