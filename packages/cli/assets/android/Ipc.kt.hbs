@@ -1,0 +1,24 @@
+package dev.dioxus.main
+
+import android.util.Log
+
+/**
+ * Thin façade that you can later bridge to Rust/JNI.
+ * Having it here unblocks the Kotlin compiler right away.
+ */
+object Ipc {
+    @JvmStatic
+    fun sendUsbOperationResult(op: String, result: String) =
+        Log.d("Ipc", "USB op=$op result=$result")
+
+    @JvmStatic
+    fun sendUsbPermissionResult(result: String) =
+        Log.d("Ipc", "USB permission result=$result")
+
+    @JvmStatic
+    fun sendPublicKey(base58: String)      = Log.d("Ipc", "pubKey $base58")
+    @JvmStatic
+    fun sendSignedTransaction(tx: String)  = Log.d("Ipc", "signedTx $tx")
+    @JvmStatic
+    fun sendSignedMessage(sig: String)     = Log.d("Ipc", "signedMsg $sig")
+}

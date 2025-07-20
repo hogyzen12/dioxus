@@ -1,7 +1,7 @@
 package dev.dioxus.main;
 
 // need to re-export buildconfig down from the parent
-import com.example.Mobile.BuildConfig;
+import dev.dioxus.main.BuildConfig
 import android.os.Bundle // Required for onCreate
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender // Required for MWA
 import android.hardware.usb.UsbDeviceConnection // Add this import
@@ -14,9 +14,7 @@ import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDevice
 import com.hoho.android.usbserial.driver.UsbSerialPort // From usb-serial library
 import dev.dioxus.main.UsbPermissionReceiver // Import your receiver class
-import dev.dioxus.main.Ipc // Import Ipc for sendUsbOperationResult (adjust package if different)
-
-typealias BuildConfig = BuildConfig;
+import dev.dioxus.main.Ipc // Import Ipc for sendUsbOperationResult
 
 class MainActivity : WryActivity() {
     internal lateinit var mwaActivityResultSender: ActivityResultSender
