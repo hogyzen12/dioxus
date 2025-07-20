@@ -29,6 +29,9 @@ import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.hoho.android.usbserial.driver.UsbSerialDriver
+import com.hoho.android.usbserial.driver.UsbSerialPort
+import com.hoho.android.usbserial.driver.UsbSerialProber
 
 @Keep
 class DioxusUtils {
@@ -343,17 +346,29 @@ class DioxusUtils {
             
             return if (device != null) {
                 if (usbManager.hasPermission(device)) {
-                    val connection = usbManager.openDevice(device)
-                    if (connection != null) {
-                        Log.d(TAG, "Successfully opened device: $deviceName")
-                        // Store connection reference in MainActivity for later use
-                        if (activity is MainActivity) {
-                            activity.storeUsbConnection(deviceName, connection)
+                    // Use usb-serial library to probe and open port
+                    val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+                    val driver = availableDrivers.firstOrNull { it.device.deviceName == deviceName }
+                    if (driver != null && driver.ports.isNotEmpty()) {
+                        val connection = usbManager.openDevice(device)
+                        if (connection != null) {
+                            val port = driver.ports[0]
+                            port.open(connection)
+                            port.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)  // Match ESP UART
+                            
+                            // Store port
+                            if (activity is MainActivity) {
+                                activity.storeUsbPort(deviceName, port)
+                            }
+                            Log.d(TAG, "Successfully opened serial port for device: $deviceName")
+                            "device_opened"
+                        } else {
+                            Log.e(TAG, "Failed to open connection for device: $deviceName")
+                            "open_failed"
                         }
-                        "device_opened"
                     } else {
-                        Log.e(TAG, "Failed to open device: $deviceName")
-                        "open_failed"
+                        Log.e(TAG, "No serial driver found for device: $deviceName")
+                        "no_driver"
                     }
                 } else {
                     Log.w(TAG, "No permission for device: $deviceName")
@@ -371,14 +386,14 @@ class DioxusUtils {
             Log.d(TAG, "closeUsbDevice called for device: $deviceName")
             
             return if (activity is MainActivity) {
-                val connection = activity.getUsbConnection(deviceName)
-                if (connection != null) {
-                    connection.close()
-                    activity.removeUsbConnection(deviceName)
-                    Log.d(TAG, "Device closed: $deviceName")
+                val port = activity.getUsbPort(deviceName)
+                if (port != null) {
+                    port.close()
+                    activity.removeUsbPort(deviceName)
+                    Log.d(TAG, "Serial port closed: $deviceName")
                     "device_closed"
                 } else {
-                    Log.w(TAG, "No open connection for device: $deviceName")
+                    Log.w(TAG, "No open port for device: $deviceName")
                     "device_not_open"
                 }
             } else {
@@ -393,49 +408,18 @@ class DioxusUtils {
             Log.d(TAG, "writeUsbData called for device: $deviceName, data size: ${data.size}")
             
             return if (activity is MainActivity) {
-                val connection = activity.getUsbConnection(deviceName)
-                if (connection != null) {
-                    // This is a basic implementation - you'll need to customize based on your USB device
-                    // Find the first OUT endpoint
-                    val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
-                    val device = usbManager.deviceList[deviceName]
-                    
-                    if (device != null && device.interfaceCount > 0) {
-                        val usbInterface = device.getInterface(0)
-                        connection.claimInterface(usbInterface, true)
-                        
-                        // Find OUT endpoint - Fix: use UsbConstants.USB_DIR_OUT
-                        var outEndpoint: UsbEndpoint? = null
-                        for (i in 0 until usbInterface.endpointCount) {
-                            val endpoint = usbInterface.getEndpoint(i)
-                            if (endpoint.direction == UsbConstants.USB_DIR_OUT) {
-                                outEndpoint = endpoint
-                                break
-                            }
-                        }
-                        
-                        if (outEndpoint != null) {
-                            val bytesTransferred = connection.bulkTransfer(outEndpoint, data, data.size, 5000)
-                            connection.releaseInterface(usbInterface)
-                            
-                            if (bytesTransferred >= 0) {
-                                Log.d(TAG, "Successfully wrote $bytesTransferred bytes to device: $deviceName")
-                                "write_success:$bytesTransferred"
-                            } else {
-                                Log.e(TAG, "Failed to write data to device: $deviceName")
-                                "write_failed"
-                            }
-                        } else {
-                            connection.releaseInterface(usbInterface)
-                            Log.e(TAG, "No OUT endpoint found for device: $deviceName")
-                            "no_out_endpoint"
-                        }
-                    } else {
-                        Log.e(TAG, "Device or interface not found: $deviceName")
-                        "device_interface_error"
+                val port = activity.getUsbPort(deviceName)
+                if (port != null) {
+                    try {
+                        val bytesWritten = port.write(data, 5000)  // Timeout 5s
+                        Log.d(TAG, "Successfully wrote $bytesWritten bytes to device: $deviceName")
+                        "write_success:$bytesWritten"
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to write data: ${e.message}")
+                        "write_failed:${e.message}"
                     }
                 } else {
-                    Log.w(TAG, "No open connection for device: $deviceName")
+                    Log.w(TAG, "No open port for device: $deviceName")
                     "device_not_open"
                 }
             } else {
@@ -450,50 +434,21 @@ class DioxusUtils {
             Log.d(TAG, "readUsbData called for device: $deviceName, buffer size: $bufferSize")
             
             return if (activity is MainActivity) {
-                val connection = activity.getUsbConnection(deviceName)
-                if (connection != null) {
-                    val usbManager = activity.getSystemService(Context.USB_SERVICE) as UsbManager
-                    val device = usbManager.deviceList[deviceName]
-                    
-                    if (device != null && device.interfaceCount > 0) {
-                        val usbInterface = device.getInterface(0)
-                        connection.claimInterface(usbInterface, true)
-                        
-                        // Find IN endpoint - Fix: use UsbConstants.USB_DIR_IN
-                        var inEndpoint: UsbEndpoint? = null
-                        for (i in 0 until usbInterface.endpointCount) {
-                            val endpoint = usbInterface.getEndpoint(i)
-                            if (endpoint.direction == UsbConstants.USB_DIR_IN) {
-                                inEndpoint = endpoint
-                                break
-                            }
-                        }
-                        
-                        if (inEndpoint != null) {
-                            val buffer = ByteArray(bufferSize)
-                            val bytesRead = connection.bulkTransfer(inEndpoint, buffer, buffer.size, 5000)
-                            connection.releaseInterface(usbInterface)
-                            
-                            if (bytesRead >= 0) {
-                                Log.d(TAG, "Successfully read $bytesRead bytes from device: $deviceName")
-                                val actualData = buffer.copyOf(bytesRead)
-                                val base64Data = android.util.Base64.encodeToString(actualData, android.util.Base64.DEFAULT)
-                                "read_success:$bytesRead:$base64Data"
-                            } else {
-                                Log.e(TAG, "Failed to read data from device: $deviceName")
-                                "read_failed"
-                            }
-                        } else {
-                            connection.releaseInterface(usbInterface)
-                            Log.e(TAG, "No IN endpoint found for device: $deviceName")
-                            "no_in_endpoint"
-                        }
-                    } else {
-                        Log.e(TAG, "Device or interface not found: $deviceName")
-                        "device_interface_error"
+                val port = activity.getUsbPort(deviceName)
+                if (port != null) {
+                    try {
+                        val buffer = ByteArray(bufferSize)
+                        val bytesRead = port.read(buffer, 5000)
+                        val actualData = buffer.copyOf(bytesRead)
+                        val base64Data = android.util.Base64.encodeToString(actualData, android.util.Base64.DEFAULT)
+                        Log.d(TAG, "Successfully read $bytesRead bytes from device: $deviceName")
+                        "read_success:$bytesRead:$base64Data"
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to read data: ${e.message}")
+                        "read_failed:${e.message}"
                     }
                 } else {
-                    Log.w(TAG, "No open connection for device: $deviceName")
+                    Log.w(TAG, "No open port for device: $deviceName")
                     "device_not_open"
                 }
             } else {

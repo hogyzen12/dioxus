@@ -6,38 +6,75 @@ import android.os.Bundle // Required for onCreate
 import com.solana.mobilewalletadapter.clientlib.ActivityResultSender // Required for MWA
 import android.hardware.usb.UsbDeviceConnection // Add this import
 import java.util.concurrent.ConcurrentHashMap // Add this import
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import android.hardware.usb.UsbDevice
 
 typealias BuildConfig = BuildConfig;
-
 
 class MainActivity : WryActivity() {
     internal lateinit var mwaActivityResultSender: ActivityResultSender
     
-    // Add USB connection storage
-    private val usbConnections = ConcurrentHashMap<String, UsbDeviceConnection>()
+    // Add USB connection storage - change to store UsbSerialPort instead
+    private val usbPorts = ConcurrentHashMap<String, com.hoho.android.usbserial.driver.UsbSerialPort>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState) // Ensures WryActivity.onCreate() is called
+        super.onCreate(savedInstanceState)
+        
+        // Register USB permission receiver
+        val usbPermissionReceiver = UsbPermissionReceiver()
+        registerReceiver(usbPermissionReceiver, IntentFilter("{{application_id}}.USB_PERMISSION"))
+        
+        // Register detach receiver
+        val usbDetachReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    device?.deviceName?.let { deviceName ->
+                        closeUsbPort(deviceName)
+                        // Send to Rust via Ipc if needed
+                        Ipc.sendUsbOperationResult("close", "detached:$deviceName")
+                    }
+                }
+            }
+        }
+        registerReceiver(usbDetachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED))
+        
         mwaActivityResultSender = ActivityResultSender(this)
     }
     
-    // Add these USB connection management methods
-    fun storeUsbConnection(deviceName: String, connection: UsbDeviceConnection) {
-        usbConnections[deviceName] = connection
+    // Update to store UsbSerialPort
+    fun storeUsbPort(deviceName: String, port: com.hoho.android.usbserial.driver.UsbSerialPort) {
+        usbPorts[deviceName] = port
     }
     
-    fun getUsbConnection(deviceName: String): UsbDeviceConnection? {
-        return usbConnections[deviceName]
+    fun getUsbPort(deviceName: String): com.hoho.android.usbserial.driver.UsbSerialPort? {
+        return usbPorts[deviceName]
     }
     
-    fun removeUsbConnection(deviceName: String): UsbDeviceConnection? {
-        return usbConnections.remove(deviceName)
+    fun removeUsbPort(deviceName: String): com.hoho.android.usbserial.driver.UsbSerialPort? {
+        return usbPorts.remove(deviceName)
+    }
+    
+    private fun closeUsbPort(deviceName: String) {
+        getUsbPort(deviceName)?.let { port ->
+            try {
+                port.close()
+            } catch (e: Exception) {
+                // Log error
+            }
+            removeUsbPort(deviceName)
+        }
     }
     
     override fun onDestroy() {
-        // Close all USB connections when activity is destroyed
-        usbConnections.values.forEach { it.close() }
-        usbConnections.clear()
+        // Close all USB ports
+        usbPorts.keys.forEach { closeUsbPort(it) }
+        usbPorts.clear()
+        // Unregister receivers - use local vars or make class members
+        unregisterReceiver(usbPermissionReceiver)  // Assuming you define it as class member if needed
+        unregisterReceiver(usbDetachReceiver)     // Same
         super.onDestroy()
     }
 }
