@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace="{{ application_id }}"
+    namespace = "{{ application_id }}"
     compileSdk = 35
     defaultConfig {
         applicationId = "{{ application_id }}"
@@ -58,7 +58,7 @@ android {
 repositories {
     google()
     mavenCentral()
-    maven { url "https://jitpack.io" }
+    maven { url = uri("https://jitpack.io") }
 }
 
 dependencies {
